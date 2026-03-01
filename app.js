@@ -1,0 +1,745 @@
+// ─── SUPABASE ─────────────────────────────────────────────
+const SUPABASE_URL = 'https://nkebjgfsihtgyiicwcav.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5rZWJqZ2ZzaWh0Z3lpaWN3Y2F2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzODgyNTEsImV4cCI6MjA4Nzk2NDI1MX0.X-GuLalKegE7qeemNTCHJzNmv8nam4CNKEQF6xoiFus';
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ─── EMAILJS ──────────────────────────────────────────────
+// 1. Sign up free at https://emailjs.com
+// 2. Add an email service (Gmail/Outlook) → note the Service ID
+// 3. Create a template with variables: {{to_email}}, {{to_name}},
+//    {{event_name}}, {{confirmed_time}}, {{organizer_name}}, {{event_description}}
+// 4. Copy your Public Key from Account > API Keys
+const EMAILJS_PUBLIC_KEY  = 'YOUR_PUBLIC_KEY';
+const EMAILJS_SERVICE_ID  = 'YOUR_SERVICE_ID';
+const EMAILJS_TEMPLATE_ID = 'YOUR_TEMPLATE_ID';
+emailjs.init(EMAILJS_PUBLIC_KEY);
+
+let confirmedBestKey = null;
+
+// ─── AUTH ─────────────────────────────────────────────────
+let currentUser = null;
+let authMode = 'signin';
+
+function updateHeaderAuth() {
+  const emailEl = document.getElementById('header-user-email');
+  const signOutBtn = document.getElementById('btn-sign-out');
+  const tagline = document.getElementById('header-tagline');
+  if (currentUser) {
+    emailEl.textContent = currentUser.email;
+    emailEl.style.display = 'block';
+    signOutBtn.style.display = 'inline-flex';
+    tagline.style.display = 'none';
+  } else {
+    emailEl.style.display = 'none';
+    signOutBtn.style.display = 'none';
+    tagline.style.display = 'block';
+  }
+}
+
+async function signIn() {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  if (!email || !password) { showNotif('Please fill in all fields'); return; }
+  const { error } = await db.auth.signInWithPassword({ email, password });
+  if (error) showNotif(error.message);
+}
+
+async function signUp() {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  if (!email || !password) { showNotif('Please fill in all fields'); return; }
+  if (password.length < 6) { showNotif('Password must be at least 6 characters'); return; }
+  const { error } = await db.auth.signUp({ email, password });
+  if (error) showNotif(error.message);
+  else showNotif('Check your email to confirm your account!', 5000);
+}
+
+async function signOut() {
+  await db.auth.signOut();
+}
+
+function toggleAuthMode() {
+  authMode = authMode === 'signin' ? 'signup' : 'signin';
+  if (authMode === 'signup') {
+    document.getElementById('login-title-accent').textContent = 'account.';
+    document.getElementById('login-sub').textContent = 'Join to start scheduling with your friends.';
+    document.getElementById('btn-auth-submit').textContent = 'Sign up →';
+    document.getElementById('btn-auth-submit').onclick = signUp;
+    document.getElementById('btn-auth-toggle').textContent = 'Already have an account?';
+  } else {
+    document.getElementById('login-title-accent').textContent = 'back.';
+    document.getElementById('login-sub').textContent = 'Sign in to create and manage your events.';
+    document.getElementById('btn-auth-submit').textContent = 'Sign in →';
+    document.getElementById('btn-auth-submit').onclick = signIn;
+    document.getElementById('btn-auth-toggle').textContent = 'Create account';
+  }
+}
+
+db.auth.onAuthStateChange((event, session) => {
+  currentUser = session?.user || null;
+  updateHeaderAuth();
+  if (event === 'SIGNED_IN') {
+    const redirect = sessionStorage.getItem('whenfree_redirect');
+    sessionStorage.removeItem('whenfree_redirect');
+    if (redirect) { location.hash = redirect; }
+    else { loadHome(); }
+  } else if (event === 'SIGNED_OUT') {
+    showView('login');
+  }
+});
+
+// ─── MY EVENTS (local tracking) ───────────────────────────
+const MY_EVENTS_KEY = 'whenfree_my_events';
+function getMyEventIds() { return JSON.parse(localStorage.getItem(MY_EVENTS_KEY) || '[]'); }
+function addMyEventId(id) {
+  const ids = getMyEventIds();
+  if (!ids.includes(id)) { ids.push(id); localStorage.setItem(MY_EVENTS_KEY, JSON.stringify(ids)); }
+}
+function removeMyEventId(id) {
+  localStorage.setItem(MY_EVENTS_KEY, JSON.stringify(getMyEventIds().filter(i => i !== id)));
+}
+
+// Map Supabase column names → app internal format
+function mapEvent(row, responses = []) {
+  return {
+    id: row.id,
+    name: row.name,
+    desc: row.description || '',
+    from: row.date_from,
+    to: row.date_to,
+    tStart: row.time_start,
+    tEnd: row.time_end,
+    responses: responses.map(r => ({ name: r.name, slots: Array.isArray(r.slots) ? r.slots : [] }))
+  };
+}
+
+// ─── ROUTING ──────────────────────────────────────────────
+let currentEventId = null;
+
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + name).classList.add('active');
+}
+
+function showNotif(msg, duration = 2500) {
+  const el = document.getElementById('notif');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), duration);
+}
+
+// ─── TIME HELPERS ─────────────────────────────────────────
+function timeSlots(startTime, endTime) {
+  const [sh] = startTime.split(':').map(Number);
+  const [eh, em] = endTime.split(':').map(Number);
+  const slots = [];
+  for (let h = sh; h <= eh; h++) {
+    slots.push(`${String(h).padStart(2,'0')}:00`);
+    if (h < eh || em >= 30) slots.push(`${String(h).padStart(2,'0')}:30`);
+  }
+  return slots;
+}
+
+function formatTime(t) {
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'pm' : 'am';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2,'0')}${ampm}`;
+}
+
+function formatDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function getDatesInRange(from, to) {
+  const dates = [];
+  let d = new Date(from + 'T00:00:00');
+  const end = new Date(to + 'T00:00:00');
+  while (d <= end) {
+    dates.push(d.toISOString().split('T')[0]);
+    d.setDate(d.getDate() + 1);
+  }
+  return dates;
+}
+
+function buildSlotKey(date, time) { return `${date}|${time}`; }
+
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── TIME SELECT POPULATION ───────────────────────────────
+function populateTimeSelects() {
+  const s = document.getElementById('evt-time-start');
+  const e = document.getElementById('evt-time-end');
+  s.innerHTML = ''; e.innerHTML = '';
+  for (let h = 6; h <= 23; h++) {
+    ['00', '30'].forEach(m => {
+      const val = `${String(h).padStart(2,'0')}:${m}`;
+      const label = formatTime(val);
+      s.innerHTML += `<option value="${val}">${label}</option>`;
+      e.innerHTML += `<option value="${val}">${label}</option>`;
+    });
+  }
+  s.value = '09:00';
+  e.value = '23:30';
+}
+
+populateTimeSelects();
+
+// Set default dates
+const today = new Date();
+const oneMonth = new Date(today);
+oneMonth.setDate(oneMonth.getDate() + 30);
+document.getElementById('evt-from').value = today.toISOString().split('T')[0];
+document.getElementById('evt-to').value = oneMonth.toISOString().split('T')[0];
+
+// ─── CREATOR AVAILABILITY GRID ────────────────────────────
+let creatorSlots = new Set();
+
+function renderCreateGrid() {
+  const from = document.getElementById('evt-from').value;
+  const to = document.getElementById('evt-to').value;
+  const tStart = document.getElementById('evt-time-start').value;
+  const tEnd = document.getElementById('evt-time-end').value;
+
+  if (!from || !to || from > to || tStart >= tEnd) return;
+
+  const section = document.getElementById('create-grid-section');
+  section.style.display = 'block';
+  creatorSlots = new Set();
+
+  const dates = getDatesInRange(from, to);
+  const slots = timeSlots(tStart, tEnd);
+
+  let html = '<div class="time-grid">';
+  html += '<div class="time-grid-header"><div style="width:50px; flex-shrink:0;"></div>';
+  dates.forEach(d => { html += `<div class="day-label">${formatDate(d)}</div>`; });
+  html += '</div>';
+
+  slots.forEach(time => {
+    html += `<div class="time-row"><div class="time-label">${formatTime(time)}</div>`;
+    dates.forEach(date => {
+      const key = buildSlotKey(date, time);
+      html += `<div class="time-cell" data-key="${key}" onclick="toggleCreateSlot(this,'${key}')"></div>`;
+    });
+    html += '</div>';
+  });
+
+  html += '</div>';
+  document.getElementById('create-grid').innerHTML = html;
+}
+
+function toggleCreateSlot(el, key) {
+  if (creatorSlots.has(key)) {
+    creatorSlots.delete(key);
+    el.classList.remove('selected');
+  } else {
+    creatorSlots.add(key);
+    el.classList.add('selected');
+  }
+}
+
+['evt-from', 'evt-to', 'evt-time-start', 'evt-time-end'].forEach(id => {
+  document.getElementById(id).addEventListener('change', renderCreateGrid);
+});
+
+renderCreateGrid();
+
+// ─── CREATE EVENT ─────────────────────────────────────────
+async function createNewEvent() {
+  const name = document.getElementById('evt-name').value.trim();
+  const creatorName = document.getElementById('evt-creator-name').value.trim();
+  const desc = document.getElementById('evt-desc').value.trim();
+  const from = document.getElementById('evt-from').value;
+  const to = document.getElementById('evt-to').value;
+  const tStart = document.getElementById('evt-time-start').value;
+  const tEnd = document.getElementById('evt-time-end').value;
+
+  if (!name) { showNotif('Please enter an event name'); return; }
+  if (!creatorName) { showNotif('Please enter your name'); return; }
+  if (!from || !to) { showNotif('Please select a date range'); return; }
+  if (from > to) { showNotif('End date must be after start date'); return; }
+  if (tStart >= tEnd) { showNotif('End time must be after start time'); return; }
+  if (!creatorSlots.size) { showNotif('Please mark at least one time slot'); return; }
+
+  const id = 'evt_' + Date.now();
+  const { error } = await db.from('events').insert({
+    id, name, description: desc,
+    date_from: from, date_to: to,
+    time_start: tStart, time_end: tEnd,
+    user_id: currentUser.id
+  });
+
+  if (error) { showNotif('Error creating event: ' + error.message); return; }
+
+  await db.from('responses').insert({
+    event_id: id,
+    name: creatorName,
+    slots: [...creatorSlots],
+    user_id: currentUser.id
+  });
+
+  addMyEventId(id);
+  showDashboard(id);
+}
+
+// ─── HOME ──────────────────────────────────────────────────
+async function loadHome() {
+  showView('home');
+  const [{ data: myEvents }, { data: myResponses }] = await Promise.all([
+    db.from('events').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false }),
+    db.from('responses').select('event_id').eq('user_id', currentUser.id)
+  ]);
+
+  const inviteIds = [...new Set((myResponses || []).map(r => r.event_id))];
+  let myInvites = [];
+  if (inviteIds.length) {
+    const { data } = await db.from('events').select('*').in('id', inviteIds);
+    myInvites = (data || []).filter(e => e.user_id !== currentUser.id);
+  }
+
+  renderHomeEvents(myEvents || [], myInvites);
+}
+
+function renderHomeEvents(myEvents, myInvites) {
+  document.getElementById('home-my-events').innerHTML = myEvents.length
+    ? myEvents.map(e => `
+      <div class="response-item" style="cursor:pointer;" onclick="showDashboard('${e.id}')">
+        <div>
+          <div class="response-name">${escHtml(e.name)}</div>
+          <div class="response-slots">${formatDate(e.date_from)} – ${formatDate(e.date_to)}</div>
+        </div>
+        <span style="color:var(--muted); font-size:0.8rem;">→</span>
+      </div>`).join('')
+    : '<div class="empty-state" style="padding:1.5rem;">No events yet</div>';
+
+  document.getElementById('home-my-invites').innerHTML = myInvites.length
+    ? myInvites.map(e => `
+      <div class="response-item" style="cursor:pointer;" onclick="showRespondView('${e.id}')">
+        <div>
+          <div class="response-name">${escHtml(e.name)}</div>
+          <div class="response-slots">${formatDate(e.date_from)} – ${formatDate(e.date_to)}</div>
+        </div>
+        <span style="color:var(--muted); font-size:0.8rem;">→</span>
+      </div>`).join('')
+    : '<div class="empty-state" style="padding:1.5rem;">No invites yet</div>';
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────
+async function showDashboard(id) {
+  currentEventId = id;
+
+  const [{ data: row, error }, { data: responses }] = await Promise.all([
+    db.from('events').select('*').eq('id', id).single(),
+    db.from('responses').select('*').eq('event_id', id).order('created_at')
+  ]);
+
+  if (error || !row) { loadHome(); return; }
+
+  const evt = mapEvent(row, responses || []);
+  const myResponse = (responses || []).find(r => r.user_id === currentUser.id) || null;
+
+  document.getElementById('dash-event-name').textContent = evt.name;
+  document.getElementById('dash-event-desc').textContent =
+    evt.desc || `${formatDate(evt.from)} – ${formatDate(evt.to)} · ${formatTime(evt.tStart)} – ${formatTime(evt.tEnd)}`;
+
+  const shareUrl = `${location.origin}${location.pathname}#respond/${id}`;
+  document.getElementById('share-url-text').textContent = shareUrl;
+
+  renderResponses(evt);
+  renderHeatmap(evt, null);
+  renderDashMyGrid(evt, myResponse);
+  populateDashTimeSelects(evt.tStart, evt.tEnd);
+  document.getElementById('dash-edit-from').value = evt.from;
+  document.getElementById('dash-edit-to').value = evt.to;
+  document.getElementById('result-card').style.display = 'none';
+  showView('dashboard');
+}
+
+function renderResponses(evt) {
+  const container = document.getElementById('dash-responses');
+  document.getElementById('dash-resp-count').textContent = evt.responses.length;
+
+  if (!evt.responses.length) {
+    container.innerHTML = '<div class="empty-state">Waiting for responses…<br><small>Share the link with your friends</small></div>';
+    return;
+  }
+
+  container.innerHTML = evt.responses.map(r => `
+    <div class="response-item">
+      <div>
+        <div class="response-name">${escHtml(r.name)}</div>
+        <div class="response-slots">${r.slots.length} slot${r.slots.length !== 1 ? 's' : ''} available</div>
+      </div>
+      <button class="btn btn-secondary" style="padding:0.4rem 0.8rem; font-size:0.65rem;"
+        onclick="deleteResponse('${evt.id}','${escHtml(r.name)}')">Remove</button>
+    </div>
+  `).join('');
+}
+
+async function deleteResponse(evtId, name) {
+  await db.from('responses').delete().eq('event_id', evtId).eq('name', name);
+  showDashboard(evtId);
+}
+
+async function deleteEvent() {
+  if (!confirm('Delete this event and all responses?')) return;
+  await db.from('events').delete().eq('id', currentEventId);
+  removeMyEventId(currentEventId);
+  loadHome();
+}
+
+// ─── MY AVAILABILITY EDIT GRID (dashboard) ────────────────
+let dashMySlots = new Set();
+let dashMyResponseName = null;
+
+function renderDashMyGrid(evt, myResponse) {
+  dashMySlots = new Set(myResponse ? (Array.isArray(myResponse.slots) ? myResponse.slots : []) : []);
+  dashMyResponseName = myResponse ? myResponse.name : null;
+  renderDashMyGridHtml(evt.from, evt.to, evt.tStart, evt.tEnd);
+}
+
+function renderDashMyGridHtml(from, to, tStart, tEnd) {
+  const dates = getDatesInRange(from, to);
+  const slots = timeSlots(tStart, tEnd);
+
+  let html = '<div class="time-grid">';
+  html += '<div class="time-grid-header"><div style="width:50px; flex-shrink:0;"></div>';
+  dates.forEach(d => { html += `<div class="day-label">${formatDate(d)}</div>`; });
+  html += '</div>';
+
+  slots.forEach(time => {
+    html += `<div class="time-row"><div class="time-label">${formatTime(time)}</div>`;
+    dates.forEach(date => {
+      const key = buildSlotKey(date, time);
+      const sel = dashMySlots.has(key) ? ' selected' : '';
+      html += `<div class="time-cell${sel}" onclick="toggleDashMySlot(this,'${key}')"></div>`;
+    });
+    html += '</div>';
+  });
+
+  html += '</div>';
+  document.getElementById('dash-my-grid').innerHTML = html;
+}
+
+function previewDashMyGrid() {
+  const from = document.getElementById('dash-edit-from').value;
+  const to = document.getElementById('dash-edit-to').value;
+  const tStart = document.getElementById('dash-edit-tstart').value;
+  const tEnd = document.getElementById('dash-edit-tend').value;
+  if (!from || !to || from > to || tStart >= tEnd) return;
+  renderDashMyGridHtml(from, to, tStart, tEnd);
+}
+
+function toggleDashMySlot(el, key) {
+  if (dashMySlots.has(key)) {
+    dashMySlots.delete(key);
+    el.classList.remove('selected');
+  } else {
+    dashMySlots.add(key);
+    el.classList.add('selected');
+  }
+}
+
+async function saveDashMySlots() {
+  if (!dashMySlots.size) { showNotif('Please select at least one slot'); return; }
+
+  const from = document.getElementById('dash-edit-from').value;
+  const to = document.getElementById('dash-edit-to').value;
+  const tStart = document.getElementById('dash-edit-tstart').value;
+  const tEnd = document.getElementById('dash-edit-tend').value;
+
+  if (from && to && from <= to && tStart < tEnd) {
+    const { error: rangeErr } = await db.from('events').update({
+      date_from: from, date_to: to, time_start: tStart, time_end: tEnd
+    }).eq('id', currentEventId);
+    if (rangeErr) { showNotif('Error updating range: ' + rangeErr.message); return; }
+  }
+
+  await db.from('responses').delete().eq('event_id', currentEventId).eq('user_id', currentUser.id);
+
+  const name = dashMyResponseName || currentUser.email.split('@')[0];
+  const { error } = await db.from('responses').insert({
+    event_id: currentEventId,
+    name,
+    slots: [...dashMySlots],
+    user_id: currentUser.id
+  });
+
+  if (error) { showNotif('Error saving: ' + error.message); return; }
+  showNotif('Availability updated!');
+  showDashboard(currentEventId);
+}
+
+// ─── DASHBOARD TIME SELECTS ───────────────────────────────
+function populateDashTimeSelects(tStart, tEnd) {
+  const s = document.getElementById('dash-edit-tstart');
+  const e = document.getElementById('dash-edit-tend');
+  s.innerHTML = ''; e.innerHTML = '';
+  for (let h = 6; h <= 23; h++) {
+    ['00', '30'].forEach(m => {
+      const val = `${String(h).padStart(2,'0')}:${m}`;
+      const label = formatTime(val);
+      s.innerHTML += `<option value="${val}">${label}</option>`;
+      e.innerHTML += `<option value="${val}">${label}</option>`;
+    });
+  }
+  s.value = tStart;
+  e.value = tEnd;
+}
+
+async function saveEventRange() {
+  const from = document.getElementById('dash-edit-from').value;
+  const to = document.getElementById('dash-edit-to').value;
+  const tStart = document.getElementById('dash-edit-tstart').value;
+  const tEnd = document.getElementById('dash-edit-tend').value;
+
+  if (!from || !to || from > to) { showNotif('Invalid date range'); return; }
+  if (tStart >= tEnd) { showNotif('End time must be after start time'); return; }
+
+  const { error } = await db.from('events').update({
+    date_from: from, date_to: to,
+    time_start: tStart, time_end: tEnd
+  }).eq('id', currentEventId);
+
+  if (error) { showNotif('Error updating: ' + error.message); return; }
+  showNotif('Date range updated!');
+  showDashboard(currentEventId);
+}
+
+// ─── HEATMAP ──────────────────────────────────────────────
+function renderHeatmap(evt, bestSlot, containerId = 'heatmap-grid') {
+  const dates = getDatesInRange(evt.from, evt.to);
+  const slots = timeSlots(evt.tStart, evt.tEnd);
+  const total = evt.responses.length;
+
+  const counts = {};
+  evt.responses.forEach(r => {
+    r.slots.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+  });
+
+  let html = '<div class="time-grid">';
+  html += '<div class="time-grid-header"><div style="width:50px; flex-shrink:0;"></div>';
+  dates.forEach(d => { html += `<div class="day-label">${formatDate(d)}</div>`; });
+  html += '</div>';
+
+  slots.forEach(time => {
+    html += `<div class="time-row"><div class="time-label">${formatTime(time)}</div>`;
+    dates.forEach(date => {
+      const key = buildSlotKey(date, time);
+      const count = counts[key] || 0;
+      let cls = 'time-cell readonly';
+      if (total > 0) {
+        if (count === total) cls += ' full';
+        else if (count > 0) cls += ' partial';
+      }
+      if (bestSlot && bestSlot === key) cls += ' best';
+      const title = total ? `${count}/${total} free` : '';
+      html += `<div class="${cls}" title="${title}"></div>`;
+    });
+    html += '</div>';
+  });
+
+  html += '</div>';
+  document.getElementById(containerId).innerHTML = html;
+}
+
+// ─── FIND BEST TIME ───────────────────────────────────────
+async function findBestTime() {
+  const [{ data: row }, { data: responses }] = await Promise.all([
+    db.from('events').select('*').eq('id', currentEventId).single(),
+    db.from('responses').select('*').eq('event_id', currentEventId)
+  ]);
+
+  const evt = mapEvent(row, responses || []);
+
+  if (!evt.responses.length) { showNotif('No responses yet!'); return; }
+
+  const dates = getDatesInRange(evt.from, evt.to);
+  const slots = timeSlots(evt.tStart, evt.tEnd);
+  const total = evt.responses.length;
+
+  const counts = {};
+  evt.responses.forEach(r => {
+    r.slots.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+  });
+
+  let bestKey = null, bestCount = 0;
+  dates.forEach(date => {
+    slots.forEach(time => {
+      const key = buildSlotKey(date, time);
+      const c = counts[key] || 0;
+      if (c > bestCount) { bestCount = c; bestKey = key; }
+    });
+  });
+
+  if (!bestKey || bestCount === 0) {
+    document.getElementById('result-card').style.display = 'block';
+    document.getElementById('best-time-display').textContent = 'No overlap';
+    document.getElementById('best-time-sub').textContent = 'No common free slots found';
+    document.getElementById('best-time-detail').textContent = '';
+    return;
+  }
+
+  const [bestDate, bestTime] = bestKey.split('|');
+
+  const btn = document.getElementById('btn-find');
+  btn.innerHTML = '<span class="loading"></span> Analysing…';
+  btn.disabled = true;
+
+  const summary = evt.responses.map(r => {
+    const daySlots = {};
+    r.slots.forEach(s => {
+      const [d, t] = s.split('|');
+      if (!daySlots[d]) daySlots[d] = [];
+      daySlots[d].push(formatTime(t));
+    });
+    const lines = Object.entries(daySlots)
+      .map(([d, ts]) => `${formatDate(d)}: ${ts.join(', ')}`).join('; ');
+    return `${r.name}: ${lines || 'no availability'}`;
+  }).join('\n');
+
+  let detail = '';
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: 'You are a friendly scheduling assistant. Given availability data, write a short, warm 2-3 sentence summary about when the group can meet. Be specific about the best time and who can make it. Keep it casual and human, like a friend texting.',
+        messages: [{
+          role: 'user',
+          content: `Event: "${evt.name}"\nRespondents: ${total}\nAvailability:\n${summary}\n\nBest slot found: ${formatDate(bestDate)} at ${formatTime(bestTime)} (${bestCount}/${total} people free)\n\nWrite a short friendly message summarising this.`
+        }]
+      })
+    });
+    const data = await res.json();
+    detail = data.content?.[0]?.text || '';
+  } catch (e) {
+    detail = `${bestCount} out of ${total} people are free at this time.`;
+  }
+
+  btn.innerHTML = 'Find Best Time';
+  btn.disabled = false;
+
+  document.getElementById('result-card').style.display = 'block';
+  document.getElementById('best-time-display').textContent = `${formatDate(bestDate)}, ${formatTime(bestTime)}`;
+  document.getElementById('best-time-sub').textContent = `${bestCount} of ${total} people available`;
+  document.getElementById('best-time-detail').textContent = detail;
+
+  renderHeatmap(evt, bestKey);
+}
+
+// ─── RESPOND VIEW ─────────────────────────────────────────
+let selectedSlots = new Set();
+
+async function showRespondView(id) {
+  const [{ data: row, error }, { data: responses }] = await Promise.all([
+    db.from('events').select('*').eq('id', id).single(),
+    db.from('responses').select('*').eq('event_id', id)
+  ]);
+
+  if (error || !row) {
+    document.getElementById('resp-event-name').textContent = 'Event not found';
+    document.getElementById('resp-event-desc').textContent = '';
+    showView('respond');
+    return;
+  }
+
+  currentEventId = id;
+  const evt = mapEvent(row, responses || []);
+  document.getElementById('resp-event-name').textContent = evt.name;
+  document.getElementById('resp-event-desc').textContent =
+    evt.desc || `${formatDate(evt.from)} – ${formatDate(evt.to)} · ${formatTime(evt.tStart)} – ${formatTime(evt.tEnd)}`;
+
+  selectedSlots = new Set();
+  renderRespondGrid(evt);
+  renderHeatmap(evt, null, 'resp-heatmap-grid');
+  showView('respond');
+}
+
+function renderRespondGrid(evt) {
+  const dates = getDatesInRange(evt.from, evt.to);
+  const slots = timeSlots(evt.tStart, evt.tEnd);
+
+  let html = '<div class="time-grid">';
+  html += '<div class="time-grid-header"><div style="width:50px; flex-shrink:0;"></div>';
+  dates.forEach(d => { html += `<div class="day-label">${formatDate(d)}</div>`; });
+  html += '</div>';
+
+  slots.forEach(time => {
+    html += `<div class="time-row"><div class="time-label">${formatTime(time)}</div>`;
+    dates.forEach(date => {
+      const key = buildSlotKey(date, time);
+      html += `<div class="time-cell" data-key="${key}" onclick="toggleSlot(this,'${key}')"></div>`;
+    });
+    html += '</div>';
+  });
+
+  html += '</div>';
+  document.getElementById('respond-grid').innerHTML = html;
+}
+
+function toggleSlot(el, key) {
+  if (selectedSlots.has(key)) {
+    selectedSlots.delete(key);
+    el.classList.remove('selected');
+  } else {
+    selectedSlots.add(key);
+    el.classList.add('selected');
+  }
+}
+
+async function submitResponse() {
+  const name = document.getElementById('resp-name').value.trim();
+  if (!name) { showNotif('Please enter your name'); return; }
+  if (!selectedSlots.size) { showNotif('Please select at least one time slot'); return; }
+
+  await db.from('responses').delete().eq('event_id', currentEventId).ilike('name', name);
+
+  const { error } = await db.from('responses').insert({
+    event_id: currentEventId,
+    name,
+    slots: [...selectedSlots],
+    user_id: currentUser?.id || null
+  });
+
+  if (error) { showNotif('Error submitting: ' + error.message); return; }
+
+  document.getElementById('submitted-name').textContent = name;
+  showView('submitted');
+}
+
+// ─── COPY LINK ────────────────────────────────────────────
+function copyLink() {
+  const url = document.getElementById('share-url-text').textContent;
+  navigator.clipboard.writeText(url).then(() => showNotif('Link copied!'));
+}
+
+// ─── ROUTING VIA HASH ─────────────────────────────────────
+function handleHash() {
+  const hash = location.hash.slice(1);
+  if (!currentUser) {
+    if (hash) sessionStorage.setItem('whenfree_redirect', hash);
+    showView('login');
+    return;
+  }
+  if (hash.startsWith('respond/')) {
+    showRespondView(hash.slice(8));
+  } else if (hash.startsWith('dashboard/')) {
+    showDashboard(hash.slice(10));
+  } else {
+    loadHome();
+  }
+}
+
+window.addEventListener('hashchange', handleHash);
+
+db.auth.getSession().then(({ data: { session } }) => {
+  currentUser = session?.user || null;
+  updateHeaderAuth();
+  handleHash();
+});
