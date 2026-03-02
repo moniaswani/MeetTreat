@@ -10,7 +10,7 @@
 <body>
 
 <header>
-  <div class="logo">When<span>Free</span></div>
+  <div class="logo" onclick="if(typeof loadHome==='function') loadHome()" style="cursor:pointer;">When<span>Free</span></div>
   <div style="display:flex; align-items:center; gap:1.5rem;">
     <div class="tagline" id="header-tagline">Schedule without the chaos</div>
     <div class="tagline" id="header-user-email" style="display:none; color:var(--accent);"></div>
@@ -99,6 +99,14 @@
       <textarea id="evt-desc" rows="2" placeholder="Any extra info for your friends"></textarea>
     </div>
 
+    <div class="field">
+      <label>Location (optional)</label>
+      <div style="display:flex; gap:0.75rem; align-items:center;">
+        <input type="text" id="evt-location" placeholder="e.g. Soho House, 40 Greek St" style="flex:1;">
+        <button class="btn btn-secondary" id="btn-suggest-location" onclick="suggestLocation('evt-location')" type="button" style="white-space:nowrap; flex-shrink:0; padding:0.75rem 1rem;">Map →</button>
+      </div>
+    </div>
+
     <div class="field-row">
       <div class="field">
         <label>From Date</label>
@@ -139,6 +147,10 @@
   <div id="view-dashboard" class="view">
     <div id="dash-event-name" class="section-title"></div>
     <p id="dash-event-desc" class="section-sub"></p>
+    <div id="dash-event-location" style="display:none; margin-top:-1rem; margin-bottom:1.5rem; font-size:0.78rem; color:var(--muted);">
+      📍 <span id="dash-location-text"></span>
+      <a id="dash-location-link" href="#" target="_blank" rel="noopener" style="color:var(--accent); margin-left:0.5rem; text-decoration:none;">View on map ↗</a>
+    </div>
 
     <div class="share-box">
       <div class="share-url" id="share-url-text"></div>
@@ -226,6 +238,10 @@
   <div id="view-respond" class="view">
     <div id="resp-event-name" class="section-title"></div>
     <p id="resp-event-desc" class="section-sub"></p>
+    <div id="resp-event-location" style="display:none; margin-top:-1rem; margin-bottom:1.5rem; font-size:0.78rem; color:var(--muted);">
+      📍 <span id="resp-location-text"></span>
+      <a id="resp-location-link" href="#" target="_blank" rel="noopener" style="color:var(--accent); margin-left:0.5rem; text-decoration:none;">View on map ↗</a>
+    </div>
 
     <div class="card">
       <div class="card-title">Mark your availability</div>

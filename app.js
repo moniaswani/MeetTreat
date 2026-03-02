@@ -114,12 +114,33 @@ function mapEvent(row, responses = []) {
     id: row.id,
     name: row.name,
     desc: row.description || '',
+    location: row.location || '',
     from: row.date_from,
     to: row.date_to,
     tStart: row.time_start,
     tEnd: row.time_end,
     responses: responses.map(r => ({ name: r.name, slots: Array.isArray(r.slots) ? r.slots : [] }))
   };
+}
+
+// ─── LOCATION ─────────────────────────────────────────────
+function suggestLocation(inputId) {
+  const val = document.getElementById(inputId).value.trim();
+  const query = val ? encodeURIComponent(val) : 'restaurants+near+me';
+  window.open(`https://www.google.com/maps/search/${query}/`, '_blank', 'noopener');
+}
+
+function setLocationDisplay(prefix, location) {
+  const wrapper = document.getElementById(`${prefix}-event-location`);
+  const text = document.getElementById(`${prefix}-location-text`);
+  const link = document.getElementById(`${prefix}-location-link`);
+  if (location) {
+    text.textContent = location;
+    link.href = `https://www.google.com/maps/search/${encodeURIComponent(location)}/`;
+    wrapper.style.display = 'block';
+  } else {
+    wrapper.style.display = 'none';
+  }
 }
 
 // ─── ROUTING ──────────────────────────────────────────────
@@ -273,9 +294,10 @@ async function createNewEvent() {
   if (tStart >= tEnd) { showNotif('End time must be after start time'); return; }
   if (!creatorSlots.size) { showNotif('Please mark at least one time slot'); return; }
 
+  const location = document.getElementById('evt-location').value.trim();
   const id = 'evt_' + Date.now();
   const { error } = await db.from('events').insert({
-    id, name, description: desc,
+    id, name, description: desc, location,
     date_from: from, date_to: to,
     time_start: tStart, time_end: tEnd,
     user_id: currentUser.id
@@ -353,8 +375,9 @@ async function showDashboard(id) {
   document.getElementById('dash-event-name').textContent = evt.name;
   document.getElementById('dash-event-desc').textContent =
     evt.desc || `${formatDate(evt.from)} – ${formatDate(evt.to)} · ${formatTime(evt.tStart)} – ${formatTime(evt.tEnd)}`;
+  setLocationDisplay('dash', evt.location);
 
-  const shareUrl = `${location.origin}${location.pathname}#respond/${id}`;
+  const shareUrl = window.location.origin + window.location.pathname + '#respond/' + id;
   document.getElementById('share-url-text').textContent = shareUrl;
 
   renderResponses(evt);
@@ -667,6 +690,7 @@ async function showRespondView(id) {
   document.getElementById('resp-event-name').textContent = evt.name;
   document.getElementById('resp-event-desc').textContent =
     evt.desc || `${formatDate(evt.from)} – ${formatDate(evt.to)} · ${formatTime(evt.tStart)} – ${formatTime(evt.tEnd)}`;
+  setLocationDisplay('resp', evt.location);
 
   selectedSlots = new Set();
   renderRespondGrid(evt);
@@ -733,7 +757,7 @@ function copyLink() {
 }
 
 // ─── ROUTING VIA HASH ─────────────────────────────────────
-function handleHash() {
+function handleHash(isInitial = false) {
   const hash = location.hash.slice(1);
   if (!currentUser) {
     if (hash) sessionStorage.setItem('whenfree_redirect', hash);
@@ -744,17 +768,17 @@ function handleHash() {
     showRespondView(hash.slice(8));
   } else if (hash.startsWith('dashboard/')) {
     showDashboard(hash.slice(10));
-  } else {
+  } else if (isInitial) {
     loadHome();
   }
 }
 
-window.addEventListener('hashchange', handleHash);
+window.addEventListener('hashchange', () => handleHash(false));
 
 db.auth.getSession().then(({ data: { session } }) => {
   currentUser = session?.user || null;
   updateHeaderAuth();
-  handleHash();
+  handleHash(true);
 });
 
 // ─── CONFIRM TIME MODAL ───────────────────────────────────
