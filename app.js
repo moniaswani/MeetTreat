@@ -58,6 +58,13 @@ async function signOut() {
   await db.auth.signOut();
 }
 
+async function signInWithGoogle() {
+  await db.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin + window.location.pathname }
+  });
+}
+
 function toggleAuthMode() {
   authMode = authMode === 'signin' ? 'signup' : 'signin';
   if (authMode === 'signup') {
@@ -79,6 +86,8 @@ db.auth.onAuthStateChange((event, session) => {
   currentUser = session?.user || null;
   updateHeaderAuth();
   if (event === 'SIGNED_IN') {
+    // Keep profiles table in sync so calendar invite lookup works
+    db.from('profiles').upsert({ id: currentUser.id, email: currentUser.email }, { onConflict: 'id' });
     const redirect = sessionStorage.getItem('whenfree_redirect');
     sessionStorage.removeItem('whenfree_redirect');
     if (redirect) { location.hash = redirect; }
@@ -580,8 +589,11 @@ async function findBestTime() {
     document.getElementById('best-time-display').textContent = 'No overlap';
     document.getElementById('best-time-sub').textContent = 'No common free slots found';
     document.getElementById('best-time-detail').textContent = '';
+    document.getElementById('btn-confirm-time').style.display = 'none';
     return;
   }
+
+  confirmedBestKey = bestKey;
 
   const [bestDate, bestTime] = bestKey.split('|');
 
@@ -629,6 +641,7 @@ async function findBestTime() {
   document.getElementById('best-time-display').textContent = `${formatDate(bestDate)}, ${formatTime(bestTime)}`;
   document.getElementById('best-time-sub').textContent = `${bestCount} of ${total} people available`;
   document.getElementById('best-time-detail').textContent = detail;
+  document.getElementById('btn-confirm-time').style.display = 'inline-flex';
 
   renderHeatmap(evt, bestKey);
 }
@@ -743,3 +756,117 @@ db.auth.getSession().then(({ data: { session } }) => {
   updateHeaderAuth();
   handleHash();
 });
+
+// ─── CONFIRM TIME MODAL ───────────────────────────────────
+function openConfirmModal() {
+  if (!confirmedBestKey) return;
+  const [bestDate, bestTime] = confirmedBestKey.split('|');
+  document.getElementById('modal-confirmed-time').textContent = `${formatDate(bestDate)}, ${formatTime(bestTime)}`;
+  document.getElementById('modal-confirmed-event').textContent =
+    document.getElementById('dash-event-name').textContent;
+  document.getElementById('modal-results').innerHTML = '';
+  document.getElementById('modal-duration').value = '60';
+  document.getElementById('modal-custom-field').style.display = 'none';
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('modal-overlay')) return;
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+function toggleCustomDuration() {
+  const sel = document.getElementById('modal-duration');
+  document.getElementById('modal-custom-field').style.display =
+    sel.value === 'custom' ? 'block' : 'none';
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('modal-overlay').classList.remove('open');
+});
+
+// ─── GOOGLE CALENDAR LINK BUILDER ─────────────────────────
+function buildGCalUrl(name, dateStr, timeStr, durationMins, desc) {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const [hour, min] = timeStr.split(':').map(Number);
+  const start = new Date(year, month - 1, day, hour, min);
+  const end = new Date(start.getTime() + durationMins * 60000);
+  const fmt = d => {
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`;
+  };
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: name,
+    dates: `${fmt(start)}/${fmt(end)}`,
+    details: desc || ''
+  });
+  return `https://calendar.google.com/calendar/render?${params}`;
+}
+
+async function generateCalendarLinks() {
+  const durationSel = document.getElementById('modal-duration');
+  let durationMins = parseInt(durationSel.value);
+  if (durationSel.value === 'custom') {
+    durationMins = parseInt(document.getElementById('modal-custom-mins').value) || 0;
+    if (durationMins < 5) { showNotif('Please enter a duration of at least 5 minutes'); return; }
+  }
+
+  const [bestDate, bestTime] = confirmedBestKey.split('|');
+  const resultsEl = document.getElementById('modal-results');
+  resultsEl.innerHTML = '<div style="color:var(--muted); font-size:0.8rem;">Building links…</div>';
+
+  const [{ data: row }, { data: responses }] = await Promise.all([
+    db.from('events').select('*').eq('id', currentEventId).single(),
+    db.from('responses').select('*').eq('event_id', currentEventId).not('user_id', 'is', null)
+  ]);
+
+  const calUrl = buildGCalUrl(row.name, bestDate, bestTime, durationMins, row.description || '');
+
+  const linkBlock = `
+    <div style="margin-bottom:1.5rem;">
+      <div style="font-size:0.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:0.5rem;">Calendar Link</div>
+      <div class="cal-link-url">${escHtml(calUrl)}</div>
+      <button class="btn btn-primary" data-url="${escHtml(calUrl)}" onclick="copyCalLinkFromBtn(this)"
+        style="margin-top:0.75rem; width:100%;">Copy Link for Everyone</button>
+    </div>`;
+
+  if (!responses || !responses.length) {
+    resultsEl.innerHTML = linkBlock +
+      '<p style="color:var(--muted); font-size:0.75rem;">No logged-in respondents found — share the link above manually.</p>';
+    return;
+  }
+
+  const userIds = [...new Set(responses.map(r => r.user_id))];
+  const { data: profiles } = await db.from('profiles').select('id, email').in('id', userIds);
+  const profileMap = {};
+  (profiles || []).forEach(p => { profileMap[p.id] = p.email; });
+
+  const respondentRows = responses.map(r => {
+    const email = profileMap[r.user_id] || '(no email on file)';
+    return `
+      <div class="response-item">
+        <div>
+          <div class="response-name">${escHtml(r.name)}</div>
+          <div class="response-slots">${escHtml(email)}</div>
+        </div>
+        <button class="btn btn-secondary" data-url="${escHtml(calUrl)}" onclick="copyCalLinkFromBtn(this)"
+          style="padding:0.4rem 0.8rem; font-size:0.65rem; white-space:nowrap;">Copy Link</button>
+      </div>`;
+  }).join('');
+
+  resultsEl.innerHTML = linkBlock +
+    `<div style="font-size:0.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:0.75rem;">
+      Respondents (${responses.length})
+    </div>
+    ${respondentRows}`;
+}
+
+function copyCalLinkFromBtn(btn) {
+  const url = btn.dataset.url;
+  navigator.clipboard.writeText(url).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+  });
+}
