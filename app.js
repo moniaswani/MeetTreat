@@ -323,6 +323,7 @@ async function createNewEvent() {
 
 // ─── HOME ──────────────────────────────────────────────────
 async function loadHome() {
+  history.replaceState(null, '', window.location.pathname);
   showView('home');
   const [{ data: myEvents }, { data: myResponses }] = await Promise.all([
     db.from('events').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false }),
@@ -392,6 +393,7 @@ async function showDashboard(id) {
   document.getElementById('dash-edit-from').value = evt.from;
   document.getElementById('dash-edit-to').value = evt.to;
   document.getElementById('result-card').style.display = 'none';
+  history.replaceState(null, '', window.location.pathname + '#dashboard/' + id);
   showView('dashboard');
 }
 
@@ -773,7 +775,10 @@ function handleHash(isInitial = false) {
     showRespondView(hash.slice(8));
   } else if (hash.startsWith('dashboard/')) {
     showDashboard(hash.slice(10));
-  } else if (isInitial) {
+  } else if (hash === 'create') {
+    showView('create');
+    renderCreateGrid();
+  } else if (hash === '' || isInitial) {
     loadHome();
   }
 }

@@ -10,7 +10,7 @@
 <body>
 
 <header>
-  <div class="logo" onclick="if(typeof loadHome==='function') loadHome()" style="cursor:pointer;">When<span>Free</span></div>
+  <div class="logo" onclick="if(typeof loadHome==='function'){ history.replaceState(null,'',window.location.pathname); loadHome(); }" style="cursor:pointer;">When<span>Free</span></div>
   <div style="display:flex; align-items:center; gap:1.5rem;">
     <div class="tagline" id="header-tagline">Schedule without the chaos</div>
     <div class="tagline" id="header-user-email" style="display:none; color:var(--accent);"></div>
@@ -61,7 +61,7 @@
       <span class="accent">everyone's free.</span>
     </div>
     <p class="hero-sub">Create an event, share the link, and let your friends mark when they're available. WhenFree finds the slot that works for everyone.</p>
-    <button class="btn btn-primary" onclick="showView('create')">↳ Create an event</button>
+    <button class="btn btn-primary" onclick="location.hash='create'">↳ Create an event</button>
 
     <div id="home-events-section" style="margin-top:3rem;">
       <hr>
@@ -139,7 +139,7 @@
 
     <div style="display:flex; gap:1rem; margin-top:1.5rem;">
       <button class="btn btn-primary" onclick="createNewEvent()">Create Event →</button>
-      <button class="btn btn-secondary" onclick="loadHome()">Cancel</button>
+      <button class="btn btn-secondary" onclick="history.back()">Cancel</button>
     </div>
   </div>
 
