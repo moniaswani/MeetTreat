@@ -82,17 +82,22 @@ function toggleAuthMode() {
   }
 }
 
+let initialAuthDone = false;
+
 db.auth.onAuthStateChange((event, session) => {
   currentUser = session?.user || null;
   updateHeaderAuth();
   if (event === 'SIGNED_IN') {
-    // Keep profiles table in sync so calendar invite lookup works
     db.from('profiles').upsert({ id: currentUser.id, email: currentUser.email }, { onConflict: 'id' });
-    const redirect = sessionStorage.getItem('whenfree_redirect');
-    sessionStorage.removeItem('whenfree_redirect');
-    if (redirect) { location.hash = redirect; }
-    else { loadHome(); }
+    if (!initialAuthDone) {
+      initialAuthDone = true;
+      const redirect = sessionStorage.getItem('whenfree_redirect');
+      sessionStorage.removeItem('whenfree_redirect');
+      if (redirect) { location.hash = redirect; }
+      else { loadHome(); }
+    }
   } else if (event === 'SIGNED_OUT') {
+    initialAuthDone = false;
     showView('login');
   }
 });
