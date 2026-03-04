@@ -382,6 +382,13 @@ input:focus, textarea:focus, select:focus {
 
 hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
 
+/* LAYOUT CLASSES (converted from inline styles) */
+.auth-form { max-width: 360px; }
+.auth-btns { display: flex; gap: 1rem; margin-top: 0.5rem; flex-wrap: wrap; }
+.home-events-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem; margin-top: 2rem; }
+.responses-header { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 1.5rem; }
+.form-actions { display: flex; gap: 1rem; margin-top: 1.5rem; }
+
 .pill {
   display: inline-block;
   padding: 0.2rem 0.7rem;
@@ -442,11 +449,33 @@ hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
 
   .section-title { font-size: 1.4rem; }
 
-  /* Home events: stack columns */
-  #home-events-section > div[style] {
-    grid-template-columns: 1fr !important;
-    gap: 1.5rem !important;
+  /* Prevent iOS auto-zoom on input focus */
+  input[type="text"],
+  input[type="date"],
+  input[type="time"],
+  input[type="number"],
+  input[type="password"],
+  textarea,
+  select { font-size: 1rem; }
+
+  /* Auth form: full-width on mobile */
+  .auth-form { max-width: 100%; }
+
+  /* Auth buttons: stack vertically */
+  .auth-btns {
+    flex-direction: column;
+    gap: 0.75rem;
   }
+  .auth-btns .btn { width: 100%; justify-content: center; }
+
+  /* Home events: stack columns */
+  .home-events-grid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  /* Responses header: wrap */
+  .responses-header { flex-wrap: wrap; gap: 0.75rem; }
 
   /* Share box: stack on mobile */
   .share-box {
@@ -459,12 +488,6 @@ hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
 
   /* Buttons full-width where appropriate */
   .btn { padding: 0.85rem 1.25rem; font-size: 0.75rem; }
-
-  /* Responses card top row */
-  #dash-responses ~ div,
-  .card > div[style*="align-items:baseline"] {
-    flex-wrap: wrap;
-  }
 
   /* Modal full screen */
   .modal-overlay { padding: 0; align-items: flex-end; }

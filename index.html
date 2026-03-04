@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WhenFree — Find a time that works</title>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 
@@ -27,7 +27,7 @@
       <span class="accent" id="login-title-accent">back.</span>
     </div>
     <p class="hero-sub" id="login-sub">Sign in to create and manage your events.</p>
-    <div style="max-width:360px;">
+    <div class="auth-form">
       <div class="field">
         <label>Email</label>
         <input type="text" id="auth-email" placeholder="you@example.com" autocomplete="email">
@@ -36,7 +36,7 @@
         <label>Password</label>
         <input type="password" id="auth-password" placeholder="••••••••" autocomplete="current-password">
       </div>
-      <div style="display:flex; gap:1rem; margin-top:0.5rem; flex-wrap:wrap;">
+      <div class="auth-btns">
         <button class="btn btn-primary" id="btn-auth-submit" onclick="signIn()">Sign in →</button>
         <button class="btn btn-secondary" id="btn-auth-toggle" onclick="toggleAuthMode()">Create account</button>
       </div>
@@ -65,7 +65,7 @@
 
     <div id="home-events-section" style="margin-top:3rem;">
       <hr>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:2.5rem; margin-top:2rem;">
+      <div class="home-events-grid">
         <div>
           <div style="font-family:'Playfair Display',serif; font-size:1.2rem; font-weight:700; margin-bottom:1rem;">My Events</div>
           <div id="home-my-events"><div class="empty-state" style="padding:1.5rem;">Loading…</div></div>
@@ -137,7 +137,7 @@
       </div>
     </div>
 
-    <div style="display:flex; gap:1rem; margin-top:1.5rem;">
+    <div class="form-actions">
       <button class="btn btn-primary" onclick="createNewEvent()">Create Event →</button>
       <button class="btn btn-secondary" onclick="history.back()">Cancel</button>
     </div>
@@ -189,7 +189,7 @@
     </div>
 
     <div class="card">
-      <div style="display:flex; align-items:baseline; gap:1rem; margin-bottom:1.5rem;">
+      <div class="responses-header">
         <div>
           <div class="responses-count" id="dash-resp-count">0</div>
           <div style="font-size:0.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em;">Responses</div>
@@ -245,7 +245,7 @@
 
     <div class="card">
       <div class="card-title">Mark your availability</div>
-      <p class="card-sub">Click the time slots when you're free. Click again to deselect.</p>
+      <p class="card-sub">Tap and drag across the slots when you're free. Tap again to deselect.</p>
 
       <div class="field">
         <label>Your Name</label>
@@ -256,7 +256,7 @@
         <div id="respond-grid"></div>
       </div>
 
-      <div style="margin-top:1.5rem; display:flex; gap:1rem;">
+      <div class="form-actions">
         <button class="btn btn-primary" onclick="submitResponse()">Submit →</button>
       </div>
     </div>
@@ -333,7 +333,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 
 </body>
 </html>
