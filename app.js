@@ -16,6 +16,18 @@ emailjs.init(EMAILJS_PUBLIC_KEY);
 
 let confirmedBestKey = null;
 
+// ─── USER COLORS ──────────────────────────────────────────
+const USER_COLORS = [
+  '#c8f564', '#f5a623', '#64b5f6', '#f06292',
+  '#a5d6a7', '#e8c55a', '#ce93d8', '#4dd0e1', '#ffab76', '#aed581'
+];
+
+function buildUserColorMap(responses) {
+  const map = {};
+  responses.forEach((r, i) => { map[r.name] = USER_COLORS[i % USER_COLORS.length]; });
+  return map;
+}
+
 // ─── AUTH ─────────────────────────────────────────────────
 let currentUser = null;
 let authMode = 'signin';
@@ -210,6 +222,49 @@ function showNotif(msg, duration = 2500) {
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), duration);
 }
+
+// ─── SLOT TOOLTIP ─────────────────────────────────────────
+let _tooltipTimer = null;
+
+function showSlotTooltip(names, rect) {
+  const t = document.getElementById('slot-tooltip');
+  if (!t || !names) return;
+  t.textContent = names;
+  const left = Math.max(5, Math.min(rect.left, window.innerWidth - 170));
+  t.style.left = left + 'px';
+  if (rect.top > 60) {
+    t.style.top = (rect.top - 8) + 'px';
+    t.style.transform = 'translateY(-100%)';
+  } else {
+    t.style.top = (rect.bottom + 8) + 'px';
+    t.style.transform = 'translateY(0)';
+  }
+  t.classList.add('visible');
+}
+
+function hideSlotTooltip() {
+  const t = document.getElementById('slot-tooltip');
+  if (t) t.classList.remove('visible');
+}
+
+// Global delegation — works on all heatmaps without re-binding
+document.addEventListener('mouseover', e => {
+  const cell = e.target.closest('.time-cell.readonly[data-names]');
+  if (cell) showSlotTooltip(cell.dataset.names, cell.getBoundingClientRect());
+});
+document.addEventListener('mouseout', e => {
+  if (e.target.closest('.time-cell.readonly')) hideSlotTooltip();
+});
+document.addEventListener('click', e => {
+  const cell = e.target.closest('.time-cell.readonly[data-names]');
+  if (cell) {
+    showSlotTooltip(cell.dataset.names, cell.getBoundingClientRect());
+    clearTimeout(_tooltipTimer);
+    _tooltipTimer = setTimeout(hideSlotTooltip, 2500);
+  } else if (!e.target.closest('#slot-tooltip')) {
+    hideSlotTooltip();
+  }
+});
 
 // ─── TIME HELPERS ─────────────────────────────────────────
 function timeSlots(startTime, endTime) {
@@ -445,11 +500,15 @@ function renderResponses(evt) {
     return;
   }
 
+  const colorMap = buildUserColorMap(evt.responses);
   container.innerHTML = evt.responses.map(r => `
     <div class="response-item">
-      <div>
-        <div class="response-name">${escHtml(r.name)}</div>
-        <div class="response-slots">${r.slots.length} slot${r.slots.length !== 1 ? 's' : ''} available</div>
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <div style="width:10px; height:10px; border-radius:50%; background:${colorMap[r.name]}; flex-shrink:0;"></div>
+        <div>
+          <div class="response-name">${escHtml(r.name)}</div>
+          <div class="response-slots">${r.slots.length} slot${r.slots.length !== 1 ? 's' : ''} available</div>
+        </div>
       </div>
       <button class="btn btn-secondary" style="padding:0.4rem 0.8rem; font-size:0.65rem;"
         onclick="deleteResponse('${evt.id}','${escHtml(r.name)}')">Remove</button>
@@ -593,10 +652,15 @@ function renderHeatmap(evt, bestSlot, containerId = 'heatmap-grid') {
   const dates = getDatesInRange(evt.from, evt.to);
   const slots = timeSlots(evt.tStart, evt.tEnd);
   const total = evt.responses.length;
+  const colorMap = buildUserColorMap(evt.responses);
 
-  const counts = {};
+  // Build per-slot user lists
+  const slotUsers = {};
   evt.responses.forEach(r => {
-    r.slots.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+    r.slots.forEach(s => {
+      if (!slotUsers[s]) slotUsers[s] = [];
+      slotUsers[s].push(r.name);
+    });
   });
 
   let html = '<div class="time-grid">';
@@ -608,20 +672,33 @@ function renderHeatmap(evt, bestSlot, containerId = 'heatmap-grid') {
     html += `<div class="time-row"><div class="time-label">${formatTime(time)}</div>`;
     dates.forEach(date => {
       const key = buildSlotKey(date, time);
-      const count = counts[key] || 0;
+      const users = slotUsers[key] || [];
+      const count = users.length;
       let cls = 'time-cell readonly';
       if (total > 0) {
         if (count === total) cls += ' full';
         else if (count > 0) cls += ' partial';
       }
       if (bestSlot && bestSlot === key) cls += ' best';
-      const title = total ? `${count}/${total} free` : '';
-      html += `<div class="${cls}" title="${title}"></div>`;
+      const names = users.join(', ');
+      const dataAttr = names ? ` data-names="${escHtml(names)}"` : '';
+      html += `<div class="${cls}"${dataAttr}></div>`;
     });
     html += '</div>';
   });
 
   html += '</div>';
+
+  // Per-user colored legend
+  if (total > 0) {
+    html += '<div class="user-legend">';
+    evt.responses.forEach(r => {
+      const c = colorMap[r.name];
+      html += `<div class="legend-item"><div class="legend-swatch" style="background:${c}; border-color:${c};"></div>${escHtml(r.name)}</div>`;
+    });
+    html += '</div>';
+  }
+
   document.getElementById(containerId).innerHTML = html;
 }
 
@@ -716,6 +793,28 @@ async function findBestTime() {
   renderHeatmap(evt, bestKey);
 }
 
+// ─── RESPONDENTS LIST (shared view) ───────────────────────
+function renderRespondents(responses, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!responses.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:1.5rem;">No responses yet.</div>';
+    return;
+  }
+  const colorMap = buildUserColorMap(responses);
+  el.innerHTML = responses.map(r => `
+    <div class="response-item">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <div style="width:10px; height:10px; border-radius:50%; background:${colorMap[r.name]}; flex-shrink:0;"></div>
+        <div>
+          <div class="response-name">${escHtml(r.name)}</div>
+          <div class="response-slots">${r.slots.length} slot${r.slots.length !== 1 ? 's' : ''}</div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
 // ─── RESPOND VIEW ─────────────────────────────────────────
 let selectedSlots = new Set();
 
@@ -742,6 +841,7 @@ async function showRespondView(id) {
   selectedSlots = new Set();
   renderRespondGrid(evt);
   renderHeatmap(evt, null, 'resp-heatmap-grid');
+  renderRespondents(evt.responses, 'resp-people-list');
   showView('respond');
 }
 

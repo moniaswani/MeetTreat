@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WhenFree — Find a time that works</title>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
@@ -261,6 +261,11 @@
       </div>
     </div>
 
+    <div class="card" id="resp-people-card">
+      <div class="card-title" style="margin-bottom:1rem;">Who's responded</div>
+      <div id="resp-people-list"></div>
+    </div>
+
     <div class="card">
       <div class="card-title" style="margin-bottom:1rem;">Group Availability</div>
       <div class="legend">
@@ -289,6 +294,7 @@
 </main>
 
 <div class="notif" id="notif"></div>
+<div id="slot-tooltip" class="slot-tooltip"></div>
 
 <!-- CONFIRM TIME MODAL -->
 <div id="modal-overlay" class="modal-overlay" onclick="closeModal(event)">
@@ -333,7 +339,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 
 </body>
 </html>
