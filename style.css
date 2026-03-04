@@ -412,9 +412,83 @@ hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
 }
 
 @media (max-width: 600px) {
-  header { padding: 1.5rem; }
-  main { padding: 2rem 1rem; }
+  header {
+    padding: 1rem 1.25rem;
+    gap: 0.75rem;
+  }
+
+  header > div:last-child {
+    gap: 0.75rem;
+  }
+
+  .tagline { display: none; }
+
+  #btn-sign-out {
+    font-size: 0.6rem !important;
+    padding: 0.3rem 0.75rem !important;
+  }
+
+  main { padding: 1.5rem 1rem; }
+
+  .hero-title { margin-bottom: 1rem; }
+
+  .hero-sub { margin-bottom: 2rem; }
+
   .field-row { grid-template-columns: 1fr; }
+
+  .card { padding: 1.25rem; }
+
+  .card-title { font-size: 1.2rem; }
+
+  .section-title { font-size: 1.4rem; }
+
+  /* Home events: stack columns */
+  #home-events-section > div[style] {
+    grid-template-columns: 1fr !important;
+    gap: 1.5rem !important;
+  }
+
+  /* Share box: stack on mobile */
+  .share-box {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .share-url { white-space: normal; }
+
+  /* Buttons full-width where appropriate */
+  .btn { padding: 0.85rem 1.25rem; font-size: 0.75rem; }
+
+  /* Responses card top row */
+  #dash-responses ~ div,
+  .card > div[style*="align-items:baseline"] {
+    flex-wrap: wrap;
+  }
+
+  /* Modal full screen */
+  .modal-overlay { padding: 0; align-items: flex-end; }
+
+  .modal {
+    border-radius: 16px 16px 0 0;
+    max-height: 92vh;
+  }
+
+  .modal-header { padding: 1.25rem 1.25rem; }
+  .modal-body { padding: 1.25rem; }
+
+  /* Notification full-width */
+  .notif {
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
+    text-align: center;
+  }
+
+  /* Time cells taller for finger tapping */
+  .time-cell { height: 36px; }
+
+  .best-time-value { font-size: 1.8rem; }
 }
 
 /* GOOGLE AUTH */

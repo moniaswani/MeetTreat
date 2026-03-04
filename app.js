@@ -162,13 +162,14 @@ let _drag = null;
 function attachDragSelect(containerId, slots) {
   const container = document.getElementById(containerId);
   if (!container) return;
+
+  // Mouse
   container.addEventListener('mousedown', e => {
     const cell = e.target.closest('.time-cell');
     if (!cell || cell.classList.contains('readonly')) return;
     e.preventDefault();
-    const adding = !slots.has(cell.dataset.key);
-    _drag = { adding, slots };
-    applyCell(cell, cell.dataset.key, adding, slots);
+    _drag = { adding: !slots.has(cell.dataset.key), slots };
+    applyCell(cell, cell.dataset.key, _drag.adding, slots);
     document.addEventListener('mouseup', () => { _drag = null; }, { once: true });
   });
   container.addEventListener('mouseover', e => {
@@ -177,6 +178,25 @@ function attachDragSelect(containerId, slots) {
     if (!cell || cell.classList.contains('readonly')) return;
     applyCell(cell, cell.dataset.key, _drag.adding, _drag.slots);
   });
+
+  // Touch
+  container.addEventListener('touchstart', e => {
+    const cell = e.target.closest('.time-cell');
+    if (!cell || cell.classList.contains('readonly')) return;
+    e.preventDefault();
+    _drag = { adding: !slots.has(cell.dataset.key), slots };
+    applyCell(cell, cell.dataset.key, _drag.adding, slots);
+  }, { passive: false });
+  container.addEventListener('touchmove', e => {
+    if (!_drag) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    const el = document.elementFromPoint(t.clientX, t.clientY);
+    const cell = el && el.closest('.time-cell');
+    if (!cell || cell.classList.contains('readonly')) return;
+    applyCell(cell, cell.dataset.key, _drag.adding, _drag.slots);
+  }, { passive: false });
+  container.addEventListener('touchend', () => { _drag = null; });
 }
 
 function applyCell(el, key, adding, slots) {
