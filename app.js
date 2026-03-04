@@ -156,6 +156,34 @@ function showView(name) {
   document.getElementById('view-' + name).classList.add('active');
 }
 
+// ─── DRAG SELECT ──────────────────────────────────────────
+let _drag = null;
+
+function attachDragSelect(containerId, slots) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.addEventListener('mousedown', e => {
+    const cell = e.target.closest('.time-cell');
+    if (!cell || cell.classList.contains('readonly')) return;
+    e.preventDefault();
+    const adding = !slots.has(cell.dataset.key);
+    _drag = { adding, slots };
+    applyCell(cell, cell.dataset.key, adding, slots);
+    document.addEventListener('mouseup', () => { _drag = null; }, { once: true });
+  });
+  container.addEventListener('mouseover', e => {
+    if (!_drag) return;
+    const cell = e.target.closest('.time-cell');
+    if (!cell || cell.classList.contains('readonly')) return;
+    applyCell(cell, cell.dataset.key, _drag.adding, _drag.slots);
+  });
+}
+
+function applyCell(el, key, adding, slots) {
+  if (adding) { slots.add(key); el.classList.add('selected'); }
+  else { slots.delete(key); el.classList.remove('selected'); }
+}
+
 function showNotif(msg, duration = 2500) {
   const el = document.getElementById('notif');
   el.textContent = msg;
@@ -257,23 +285,14 @@ function renderCreateGrid() {
     html += `<div class="time-row"><div class="time-label">${formatTime(time)}</div>`;
     dates.forEach(date => {
       const key = buildSlotKey(date, time);
-      html += `<div class="time-cell" data-key="${key}" onclick="toggleCreateSlot(this,'${key}')"></div>`;
+      html += `<div class="time-cell" data-key="${key}"></div>`;
     });
     html += '</div>';
   });
 
   html += '</div>';
   document.getElementById('create-grid').innerHTML = html;
-}
-
-function toggleCreateSlot(el, key) {
-  if (creatorSlots.has(key)) {
-    creatorSlots.delete(key);
-    el.classList.remove('selected');
-  } else {
-    creatorSlots.add(key);
-    el.classList.add('selected');
-  }
+  attachDragSelect('create-grid', creatorSlots);
 }
 
 ['evt-from', 'evt-to', 'evt-time-start', 'evt-time-end'].forEach(id => {
@@ -461,6 +480,7 @@ function renderDashMyGridHtml(from, to, tStart, tEnd) {
 
   html += '</div>';
   document.getElementById('dash-my-grid').innerHTML = html;
+  attachDragSelect('dash-my-grid', dashMySlots);
 }
 
 function previewDashMyGrid() {
@@ -725,6 +745,7 @@ function renderRespondGrid(evt) {
 
   html += '</div>';
   document.getElementById('respond-grid').innerHTML = html;
+  attachDragSelect('respond-grid', selectedSlots);
 }
 
 function toggleSlot(el, key) {
